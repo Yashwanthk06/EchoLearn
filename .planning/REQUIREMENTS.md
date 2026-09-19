@@ -113,7 +113,7 @@ None. Deliberately empty — the owner has not selected post-baseline direction.
 | Monetization / business features | No declared business model in repo |
 | New product surfaces | Owner ruled out new functionality for this baseline |
 | Social / multi-tenant features | No evidence of intent; would require shared schema decisions |
-| Server-rendering / backend app server | Architecture is intentionally SPA + Supabase Edg
+| Server-rendering / backend app server | Architecture is intentionally SPA + Supabase Edge Functions |
 
 ## Traceability
 
