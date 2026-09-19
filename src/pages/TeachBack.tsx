@@ -1,5 +1,11 @@
-import { useRef, useState } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+
 import { motion } from 'framer-motion';
+
 import {
   Mic,
   MicOff,
@@ -17,6 +23,10 @@ import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { ProgressRing } from '../components/ui/ProgressRing';
 import { supabase } from '../lib/supabase';
+
+/* =========================================
+   TYPES
+========================================= */
 
 type TeachBackQuestion = {
   id: string;
@@ -40,24 +50,25 @@ interface SpeechRecognitionResultItem {
   confidence?: number;
 }
 
-interface SpeechRecognitionResult {
+interface SpeechRecognitionResultLike {
   isFinal: boolean;
   length: number;
   [index: number]: SpeechRecognitionResultItem;
 }
 
-interface SpeechRecognitionResults {
+interface SpeechRecognitionResultsLike {
   length: number;
-  [index: number]: SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResultLike;
 }
 
 interface SpeechRecognitionEventLike {
   resultIndex: number;
-  results: SpeechRecognitionResults;
+  results: SpeechRecognitionResultsLike;
 }
 
-interface SpeechRecognitionErrorEvent {
+interface SpeechRecognitionErrorEventLike {
   error: string;
+  message?: string;
 }
 
 interface SpeechRecognitionLike {
@@ -78,7 +89,7 @@ interface SpeechRecognitionLike {
   onend: (() => void) | null;
 
   onerror:
-    | ((event: SpeechRecognitionErrorEvent) => void)
+    | ((event: SpeechRecognitionErrorEventLike) => void)
     | null;
 }
 
@@ -164,6 +175,10 @@ const teachBackQuestions: TeachBackQuestion[] = [
 ========================================= */
 
 export function TeachBack() {
+  /* =========================================
+     RESPONSE STATE
+  ========================================= */
+
   const [responses, setResponses] = useState<
     Record<string, string>
   >({});
@@ -180,6 +195,10 @@ export function TeachBack() {
     Record<string, string>
   >({});
 
+  /* =========================================
+     VOICE STATE
+  ========================================= */
+
   const [recordingQuestion, setRecordingQuestion] =
     useState<string | null>(null);
 
@@ -187,26 +206,50 @@ export function TeachBack() {
     useRef<SpeechRecognitionLike | null>(null);
 
   /*
+   * This ref is important.
+
+   * State updates are asynchronous.
+   *
+   * Therefore onend() should NOT depend on
+   * recordingQuestion state because it can contain
+   * an old value inside the callback.
+   *
+   * This ref always contains the latest recording state.
+   */
+  const activeRecordingQuestionRef =
+    useRef<string | null>(null);
+
+  /*
+   * Used to distinguish:
+   *
+   * automatic browser stop
+   *
+   * from
+   *
+   * user pressing Stop Recording.
+   */
+  const userStoppedRecordingRef =
+    useRef(false);
+
+  /*
    * Text that existed before voice recording started.
    */
-  const voiceStartingTextRef = useRef('');
+  const voiceStartingTextRef =
+    useRef('');
 
   /*
-   * Stores finalized speech by browser result index.
+   * Finalized speech stored by result index.
    *
-   * This is the important fix.
-   *
-   * Instead of APPENDING every browser event,
-   * we store each result once.
+   * This prevents duplicate transcripts.
    */
-  const finalizedResultsRef = useRef<
-    Record<number, string>
-  >({});
+  const finalizedResultsRef =
+    useRef<Record<number, string>>({});
 
   /*
-   * Current interim speech.
+   * Current temporary/interim speech.
    */
-  const interimResultRef = useRef('');
+  const interimResultRef =
+    useRef('');
 
   /* =========================================
      TEXT RESPONSE
@@ -222,18 +265,26 @@ export function TeachBack() {
     }));
 
     /*
-     * If the student edits the answer,
-     * previous AI evaluation is no longer valid.
+     * Editing the answer invalidates the
+     * previous AI evaluation.
      */
     setEvaluations((previous) => {
-      const updated = { ...previous };
+      const updated = {
+        ...previous,
+      };
+
       delete updated[questionId];
+
       return updated;
     });
 
     setErrors((previous) => {
-      const updated = { ...previous };
+      const updated = {
+        ...previous,
+      };
+
       delete updated[questionId];
+
       return updated;
     });
   };
@@ -249,6 +300,9 @@ export function TeachBack() {
       window.SpeechRecognition ||
       window.webkitSpeechRecognition;
 
+    /*
+     * Browser support check.
+     */
     if (!SpeechRecognition) {
       setErrors((previous) => ({
         ...previous,
@@ -260,7 +314,7 @@ export function TeachBack() {
     }
 
     /*
-     * Stop previous recognition if necessary.
+     * Stop any existing recognition.
      */
     if (recognitionRef.current) {
       try {
@@ -273,109 +327,122 @@ export function TeachBack() {
     }
 
     /*
-     * Create fresh recognition.
+     * Create a completely new recognition instance.
      */
-    const recognition = new SpeechRecognition();
+    const recognition =
+      new SpeechRecognition();
 
-    /*
-     * We intentionally use FALSE.
-     *
-     * The user speaks one answer and then pauses.
-     * This makes the demo much more stable.
-     */
     recognition.continuous = false;
-
-    /*
-     * We still want live text while speaking.
-     */
     recognition.interimResults = true;
-
-    /*
-     * Indian English.
-     */
     recognition.lang = 'en-IN';
 
     recognitionRef.current = recognition;
 
     /*
-     * Save whatever was already typed.
+     * Save current textarea text.
      */
     voiceStartingTextRef.current =
       responses[questionId] ?? '';
 
     /*
-     * Clear previous speech results.
+     * Reset speech tracking.
      */
     finalizedResultsRef.current = {};
-
     interimResultRef.current = '';
+
+    /*
+     * Mark this question as actively recording.
+     */
+    activeRecordingQuestionRef.current =
+      questionId;
+
+    userStoppedRecordingRef.current = false;
 
     setRecordingQuestion(questionId);
 
     setErrors((previous) => {
-      const updated = { ...previous };
+      const updated = {
+        ...previous,
+      };
+
       delete updated[questionId];
+
       return updated;
     });
 
+    /* =========================================
+       ON START
+    ========================================= */
+
     recognition.onstart = () => {
-      setRecordingQuestion(questionId);
+      /*
+       * Only update UI if this recognition
+       * is still the active one.
+       */
+      if (
+        recognitionRef.current ===
+        recognition
+      ) {
+        setRecordingQuestion(questionId);
+      }
     };
 
     /* =========================================
-       SPEECH RESULT
+       ON RESULT
     ========================================= */
 
     recognition.onresult = (
       event: SpeechRecognitionEventLike
     ) => {
-      /*
-       * Read EVERY current result from the browser.
-       *
-       * We do NOT append blindly.
-       */
       let currentInterim = '';
 
+      /*
+       * Read all results currently supplied
+       * by the browser.
+       */
       for (
         let i = 0;
         i < event.results.length;
         i++
       ) {
-        const result = event.results[i];
+        const result =
+          event.results[i];
 
         if (!result) {
           continue;
         }
 
         const transcript =
-          result[0]?.transcript?.trim() ?? '';
+          result[0]?.transcript
+            ?.trim() ?? '';
 
         if (!transcript) {
           continue;
         }
 
+        /*
+         * FINAL RESULT
+         */
         if (result.isFinal) {
           /*
-           * Store this result using its index.
+           * Store by index instead of appending.
            *
-           * If Chrome sends the same result again,
-           * it simply OVERWRITES the same index.
+           * This prevents:
            *
-           * Therefore:
+           * Machine learning
+           * Machine learning
            *
-           * "machine learning"
+           * Machine learning
            *
-           * cannot become:
-           *
-           * "machine learning machine learning"
+           * duplicates.
            */
           finalizedResultsRef.current[i] =
             transcript;
         } else {
           /*
-           * Interim text is temporary.
+           * Interim result is temporary.
            *
-           * Replace it instead of appending it.
+           * Replace it every time.
            */
           currentInterim +=
             `${transcript} `;
@@ -386,22 +453,23 @@ export function TeachBack() {
         currentInterim.trim();
 
       /*
-       * Build final speech from stored results.
+       * Rebuild finalized speech.
        */
-      const finalizedText = Object.keys(
-        finalizedResultsRef.current
-      )
-        .sort(
-          (a, b) =>
-            Number(a) - Number(b)
+      const finalizedText =
+        Object.keys(
+          finalizedResultsRef.current
         )
-        .map(
-          (index) =>
-            finalizedResultsRef.current[
-              Number(index)
-            ]
-        )
-        .join(' ');
+          .sort(
+            (a, b) =>
+              Number(a) - Number(b)
+          )
+          .map(
+            (index) =>
+              finalizedResultsRef.current[
+                Number(index)
+              ]
+          )
+          .join(' ');
 
       /*
        * Combine:
@@ -426,75 +494,122 @@ export function TeachBack() {
         ...previous,
         [questionId]: combined,
       }));
+
+      /*
+       * Since the answer changed through voice,
+       * remove any old evaluation.
+       */
+      setEvaluations((previous) => {
+        const updated = {
+          ...previous,
+        };
+
+        delete updated[questionId];
+
+        return updated;
+      });
     };
 
     /* =========================================
-       END
+       ON END
     ========================================= */
 
     recognition.onend = () => {
-  /*
-   * Chrome can automatically stop Speech Recognition
-   * even though the student is still speaking.
-   *
-   * If the student has NOT pressed Stop Recording,
-   * immediately start a new recognition session.
-   */
+      /*
+       * Ignore events from an old recognition instance.
+       */
+      if (
+        recognitionRef.current !==
+        recognition
+      ) {
+        return;
+      }
 
-  if (recordingQuestion === questionId) {
-    try {
-      recognition.start();
-      return;
-    } catch {
-      // Chrome may briefly reject restart.
-      // We handle this below.
-    }
-  }
+      /*
+       * If user explicitly pressed Stop,
+       * DO NOT restart.
+       */
+      if (
+        userStoppedRecordingRef.current
+      ) {
+        activeRecordingQuestionRef.current =
+          null;
 
-  setRecordingQuestion(null);
+        recognitionRef.current = null;
 
-  if (recognitionRef.current === recognition) {
-    recognitionRef.current = null;
-  }
-};
-    recognition.onerror = (event) => {
+        setRecordingQuestion(null);
+
+        return;
+      }
+
+      /*
+       * Browser automatically stopped recognition.
+       *
+       * We end the recording cleanly.
+       */
+      activeRecordingQuestionRef.current =
+        null;
+
+      recognitionRef.current = null;
+
+      setRecordingQuestion(null);
+    };
+
+    /* =========================================
+       ON ERROR
+    ========================================= */
+
+    recognition.onerror = (
+      event: SpeechRecognitionErrorEventLike
+    ) => {
       console.error(
         'Speech recognition error:',
         event.error
       );
 
-      setRecordingQuestion(null);
-
-      if (
-        recognitionRef.current ===
-        recognition
-      ) {
-        recognitionRef.current = null;
-      }
-
       /*
-       * "aborted" happens when we intentionally stop it.
+       * Ignore intentional abort.
        */
-      if (event.error === 'aborted') {
+      if (
+        event.error === 'aborted'
+      ) {
         return;
       }
+
+      activeRecordingQuestionRef.current =
+        null;
+
+      recognitionRef.current = null;
+
+      setRecordingQuestion(null);
 
       let message =
         'Could not access voice input. Please try again.';
 
-      if (event.error === 'not-allowed') {
+      if (
+        event.error ===
+        'not-allowed'
+      ) {
         message =
           'Microphone permission was denied. Please allow microphone access in your browser.';
-      }
-
-      if (event.error === 'no-speech') {
+      } else if (
+        event.error ===
+        'no-speech'
+      ) {
         message =
           'No speech was detected. Please try again.';
-      }
-
-      if (event.error === 'audio-capture') {
+      } else if (
+        event.error ===
+        'audio-capture'
+      ) {
         message =
           'No microphone was detected. Please check your microphone.';
+      } else if (
+        event.error ===
+        'network'
+      ) {
+        message =
+          'Speech recognition needs a network connection in this browser.';
       }
 
       setErrors((previous) => ({
@@ -503,9 +618,10 @@ export function TeachBack() {
       }));
     };
 
-    /*
-     * Start microphone.
-     */
+    /* =========================================
+       START MICROPHONE
+    ========================================= */
+
     try {
       recognition.start();
     } catch (error) {
@@ -514,8 +630,18 @@ export function TeachBack() {
         error
       );
 
-      setRecordingQuestion(null);
+      activeRecordingQuestionRef.current =
+        null;
+
       recognitionRef.current = null;
+
+      setRecordingQuestion(null);
+
+      setErrors((previous) => ({
+        ...previous,
+        [questionId]:
+          'Unable to start the microphone. Please try again.',
+      }));
     }
   };
 
@@ -524,28 +650,73 @@ export function TeachBack() {
   ========================================= */
 
   const stopVoiceResponse = () => {
+    /*
+     * Tell onend() that this was an intentional
+     * user stop.
+     */
+    userStoppedRecordingRef.current =
+      true;
+
+    activeRecordingQuestionRef.current =
+      null;
+
+    setRecordingQuestion(null);
+
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
       } catch {
-        // Ignore
+        /*
+         * If stop() fails because recognition
+         * has already ended, simply clear it.
+         */
       }
-    }
 
-    setRecordingQuestion(null);
+      recognitionRef.current = null;
+    }
   };
 
   /* =========================================
-     GEMINI EVALUATION
+     CLEANUP
+  ========================================= */
+
+  useEffect(() => {
+    return () => {
+      userStoppedRecordingRef.current =
+        true;
+
+      activeRecordingQuestionRef.current =
+        null;
+
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {
+          // Ignore
+        }
+
+        recognitionRef.current = null;
+      }
+    };
+  }, []);
+
+  /* =========================================
+     GEMINI / SUPABASE EVALUATION
   ========================================= */
 
   const submitTeachBack = async (
     question: TeachBackQuestion
   ) => {
     const studentResponse =
-      responses[question.id]?.trim() ?? '';
+      responses[question.id]
+        ?.trim() ?? '';
 
-    if (studentResponse.length < 10) {
+    /*
+     * Minimum useful answer.
+     */
+    if (
+      studentResponse.length < 10
+    ) {
       setErrors((previous) => ({
         ...previous,
         [question.id]:
@@ -561,15 +732,23 @@ export function TeachBack() {
     }));
 
     setErrors((previous) => {
-      const updated = { ...previous };
+      const updated = {
+        ...previous,
+      };
+
       delete updated[question.id];
+
       return updated;
     });
 
     try {
+      /*
+       * Verify authentication.
+       */
       const {
         data: { session },
-      } = await supabase.auth.getSession();
+      } =
+        await supabase.auth.getSession();
 
       if (!session) {
         throw new Error(
@@ -577,12 +756,19 @@ export function TeachBack() {
         );
       }
 
-      const { data, error } =
+      /*
+       * Call Supabase Edge Function.
+       */
+      const {
+        data,
+        error,
+      } =
         await supabase.functions.invoke(
           'ai-tutor',
           {
             body: {
-              topic: question.topicName,
+              topic:
+                question.topicName,
 
               message: `
 Evaluate this student's Teach Back explanation.
@@ -624,7 +810,8 @@ Rules:
         throw error;
       }
 
-      const reply = data?.reply;
+      const reply =
+        data?.reply;
 
       if (!reply) {
         throw new Error(
@@ -633,21 +820,34 @@ Rules:
       }
 
       /*
-       * Remove markdown code fences if Gemini adds them.
+       * Remove markdown code fences.
        */
-      const cleanedReply = reply
-        .replace(/```json/gi, '')
-        .replace(/```/g, '')
-        .trim();
+      const cleanedReply =
+        String(reply)
+          .replace(
+            /```json/gi,
+            ''
+          )
+          .replace(
+            /```/g,
+            ''
+          )
+          .trim();
 
       let parsed: Evaluation;
 
       try {
-        parsed = JSON.parse(cleanedReply);
+        parsed =
+          JSON.parse(
+            cleanedReply
+          );
       } catch {
+        /*
+         * Fallback if AI did not return valid JSON.
+         */
         parsed = {
           score: 70,
-          feedback: reply,
+          feedback: String(reply),
           strengths: [
             'You explained the concept in your own words.',
           ],
@@ -655,19 +855,29 @@ Rules:
         };
       }
 
-      parsed.score = Math.max(
-        0,
-        Math.min(
-          100,
-          Number(parsed.score) || 0
-        )
-      );
+      /*
+       * Sanitize score.
+       */
+      parsed.score =
+        Math.max(
+          0,
+          Math.min(
+            100,
+            Number(
+              parsed.score
+            ) || 0
+          )
+        );
 
-      parsed.strengths = Array.isArray(
-        parsed.strengths
-      )
-        ? parsed.strengths
-        : [];
+      /*
+       * Sanitize arrays.
+       */
+      parsed.strengths =
+        Array.isArray(
+          parsed.strengths
+        )
+          ? parsed.strengths
+          : [];
 
       parsed.missingConcepts =
         Array.isArray(
@@ -676,10 +886,16 @@ Rules:
           ? parsed.missingConcepts
           : [];
 
-      setEvaluations((previous) => ({
-        ...previous,
-        [question.id]: parsed,
-      }));
+      /*
+       * Save evaluation.
+       */
+      setEvaluations(
+        (previous) => ({
+          ...previous,
+          [question.id]:
+            parsed,
+        })
+      );
     } catch (error) {
       console.error(
         'Teach Back evaluation error:',
@@ -694,10 +910,12 @@ Rules:
             : 'Unable to evaluate your response.',
       }));
     } finally {
-      setEvaluating((previous) => ({
-        ...previous,
-        [question.id]: false,
-      }));
+      setEvaluating(
+        (previous) => ({
+          ...previous,
+          [question.id]: false,
+        })
+      );
     }
   };
 
@@ -706,12 +924,16 @@ Rules:
   ========================================= */
 
   const completedCount =
-    Object.keys(evaluations).length;
+    Object.keys(
+      evaluations
+    ).length;
 
   const progress =
-    (completedCount /
-      teachBackQuestions.length) *
-    100;
+    teachBackQuestions.length > 0
+      ? (completedCount /
+          teachBackQuestions.length) *
+        100
+      : 0;
 
   /* =========================================
      UI
@@ -720,15 +942,19 @@ Rules:
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-10">
 
-      {/* Header */}
+      {/* =====================================
+          HEADER
+      ===================================== */}
 
       <div>
         <div className="flex items-center gap-2">
+
           <h1 className="text-2xl font-bold text-text-primary">
             Teach Back
           </h1>
 
           <Sparkles className="h-5 w-5 text-primary" />
+
         </div>
 
         <p className="text-text-secondary mt-1">
@@ -738,12 +964,16 @@ Rules:
       </div>
 
 
-      {/* Progress */}
+      {/* =====================================
+          PROGRESS
+      ===================================== */}
 
       <Card className="p-5">
+
         <div className="flex items-center justify-between">
 
           <div>
+
             <p className="text-sm text-text-secondary">
               Teach Back Progress
             </p>
@@ -757,6 +987,7 @@ Rules:
               Complete each explanation to build your
               learning profile.
             </p>
+
           </div>
 
           <ProgressRing
@@ -770,27 +1001,41 @@ Rules:
           </ProgressRing>
 
         </div>
+
       </Card>
 
 
-      {/* Questions */}
+      {/* =====================================
+          QUESTIONS
+      ===================================== */}
 
       <div className="space-y-6">
 
         {teachBackQuestions.map(
-          (question, index) => {
+          (
+            question,
+            index
+          ) => {
 
             const response =
-              responses[question.id] ?? '';
+              responses[
+                question.id
+              ] ?? '';
 
             const evaluation =
-              evaluations[question.id];
+              evaluations[
+                question.id
+              ];
 
             const isEvaluating =
-              evaluating[question.id] ?? false;
+              evaluating[
+                question.id
+              ] ?? false;
 
             const error =
-              errors[question.id];
+              errors[
+                question.id
+              ];
 
             const isRecording =
               recordingQuestion ===
@@ -798,7 +1043,9 @@ Rules:
 
             return (
               <motion.div
-                key={question.id}
+                key={
+                  question.id
+                }
                 initial={{
                   opacity: 0,
                   y: 10,
@@ -808,7 +1055,8 @@ Rules:
                   y: 0,
                 }}
                 transition={{
-                  delay: index * 0.04,
+                  delay:
+                    index * 0.04,
                 }}
               >
 
@@ -829,18 +1077,26 @@ Rules:
                     <div className="flex items-center justify-between gap-3">
 
                       <Badge variant="warning">
-                        {question.topicName}
+                        {
+                          question.topicName
+                        }
                       </Badge>
 
                       <span className="text-xs text-text-secondary">
-                        Question {index + 1} of{' '}
-                        {teachBackQuestions.length}
+                        Question{' '}
+                        {index + 1}{' '}
+                        of{' '}
+                        {
+                          teachBackQuestions.length
+                        }
                       </span>
 
                     </div>
 
                     <h3 className="text-lg font-medium text-text-primary mt-3 leading-relaxed">
-                      {question.prompt}
+                      {
+                        question.prompt
+                      }
                     </h3>
 
                   </div>
@@ -864,9 +1120,13 @@ Rules:
                       <div className="flex items-center gap-3">
 
                         <div className="flex gap-1">
+
                           <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+
                           <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse [animation-delay:150ms]" />
+
                           <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse [animation-delay:300ms]" />
+
                         </div>
 
                         <span className="text-sm font-medium text-red-700">
@@ -876,27 +1136,31 @@ Rules:
                       </div>
 
                       <span className="text-xs text-red-600">
-                        Pause when finished
+                        Press Stop when finished
                       </span>
 
                     </motion.div>
                   )}
 
 
-                  {/* Response */}
+                  {/* Response textarea */}
 
                   <textarea
                     className="w-full border border-border rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none bg-white"
                     rows={5}
                     placeholder="Type your explanation or use Voice Response..."
                     value={response}
-                    onChange={(event) =>
+                    onChange={(
+                      event
+                    ) =>
                       updateResponse(
                         question.id,
                         event.target.value
                       )
                     }
-                    disabled={isEvaluating}
+                    disabled={
+                      isEvaluating
+                    }
                   />
 
 
@@ -904,7 +1168,7 @@ Rules:
 
                   <div className="flex gap-3 flex-wrap mt-4">
 
-                    {/* Type */}
+                    {/* Type Response */}
 
                     <Button
                       variant="secondary"
@@ -912,7 +1176,9 @@ Rules:
                       icon={
                         <Type className="h-4 w-4" />
                       }
-                      disabled={isEvaluating}
+                      disabled={
+                        isEvaluating
+                      }
                     >
                       Type Response
                     </Button>
@@ -930,6 +1196,9 @@ Rules:
                         onClick={
                           stopVoiceResponse
                         }
+                        disabled={
+                          isEvaluating
+                        }
                       >
                         Stop Recording
                       </Button>
@@ -940,7 +1209,11 @@ Rules:
                         icon={
                           <Mic className="h-4 w-4" />
                         }
-                        disabled={isEvaluating}
+                        disabled={
+                          isEvaluating ||
+                          recordingQuestion !==
+                            null
+                        }
                         onClick={() =>
                           startVoiceResponse(
                             question.id
@@ -968,7 +1241,8 @@ Rules:
                         )
                       }
                       disabled={
-                        response.trim().length <
+                        response.trim()
+                          .length <
                           10 ||
                         isEvaluating ||
                         isRecording
@@ -1048,6 +1322,7 @@ Rules:
                           {/* Score */}
 
                           <div className="shrink-0">
+
                             <ProgressRing
                               value={
                                 evaluation.score
@@ -1061,6 +1336,7 @@ Rules:
                                 }
                               </span>
                             </ProgressRing>
+
                           </div>
 
 
@@ -1088,9 +1364,8 @@ Rules:
 
                             {/* Strengths */}
 
-                            {evaluation
-                              .strengths
-                              .length > 0 && (
+                            {evaluation.strengths.length >
+                              0 && (
                               <div className="mb-4">
 
                                 <span className="text-xs font-medium text-slate-500">
@@ -1110,8 +1385,13 @@ Rules:
                                         }
                                         variant="success"
                                       >
+
                                         <Check className="h-3 w-3 inline mr-1" />
-                                        {strength}
+
+                                        {
+                                          strength
+                                        }
+
                                       </Badge>
                                     )
                                   )}
@@ -1124,9 +1404,8 @@ Rules:
 
                             {/* Missing concepts */}
 
-                            {evaluation
-                              .missingConcepts
-                              .length > 0 && (
+                            {evaluation.missingConcepts.length >
+                              0 && (
                               <div>
 
                                 <span className="text-xs font-medium text-slate-500">
@@ -1146,8 +1425,13 @@ Rules:
                                         }
                                         variant="warning"
                                       >
+
                                         <AlertCircle className="h-3 w-3 inline mr-1" />
-                                        {concept}
+
+                                        {
+                                          concept
+                                        }
+
                                       </Badge>
                                     )
                                   )}

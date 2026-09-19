@@ -1,7 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { Sparkles, Home, BookOpen, MessageSquare, ClipboardCheck, AlertTriangle, Map, TrendingUp, Users, Zap } from 'lucide-react';
-import { useUser } from '../../hooks/useMockData';
 
 const navItems = [
   { label: 'Home', icon: Home, route: '/dashboard' },
@@ -19,8 +18,6 @@ const mobileNavItems = navItems.filter(item =>
 );
 
 export const Sidebar: React.FC = () => {
-  const user = useUser();
-
   return (
     <>
       {/* Desktop Sidebar */}
@@ -61,7 +58,7 @@ export const Sidebar: React.FC = () => {
               <Zap className="w-4 h-4 fill-amber-500 text-amber-500" />
               <span className="text-sm">EchoPoints</span>
             </div>
-            <span className="font-bold text-amber-700">{user.echoPoints}</span>
+            <span className="font-bold text-amber-700">—</span>
           </div>
         </div>
       </aside>

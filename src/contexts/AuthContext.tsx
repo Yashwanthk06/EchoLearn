@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -26,16 +27,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-    });
+  /*
+   * Track whether the initial getSession() call has resolved.
+   * This prevents the onAuthStateChange handler from prematurely
+   * clearing the loading flag when it fires before getSession resolves.
+   */
+  const initialised = useRef(false);
 
+  useEffect(() => {
+    /*
+     * Subscribe FIRST so we never miss an event that fires
+     * between getSession() call and its resolution.
+     */
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
+    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+
+      /*
+       * Only clear loading after the initial getSession() has
+       * already resolved. If it fires before that, getSession's
+       * .then() will clear loading itself.
+       */
+      if (initialised.current) {
+        setLoading(false);
+      }
+    });
+
+    supabase.auth.getSession().then(({ data }) => {
+      initialised.current = true;
+      setSession(data.session);
+      setLoading(false);
     });
 
     return () => subscription.unsubscribe();

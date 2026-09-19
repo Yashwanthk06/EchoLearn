@@ -77,6 +77,11 @@ export default function App() {
               element={<Dashboard />}
             />
 
+            <Route
+              path="/dashboard"
+              element={<Dashboard />}
+            />
+
 
             {/* Learn */}
 

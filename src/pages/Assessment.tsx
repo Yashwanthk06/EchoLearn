@@ -11,7 +11,12 @@ import {
   XCircle,
   Loader2,
   AlertCircle,
+  Brain,
+  Target,
+  Lightbulb,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
 
 import { useAssessments } from '../hooks/useMockData';
 import { Card } from '../components/ui/Card';
@@ -35,9 +40,9 @@ const typeLabels: Record<AssessmentType, string> = {
   practice: 'Practice',
 };
 
-/* ---------------------------------
-   Assessment Questions
----------------------------------- */
+/* =========================================================
+   QUESTIONS
+========================================================= */
 
 const quizQuestions = [
   {
@@ -122,13 +127,29 @@ const quizQuestions = [
   },
 ];
 
-/* ---------------------------------
-   Database status values
+/* =========================================================
+   NOVELTY: CONFIDENCE
+========================================================= */
 
-   IMPORTANT:
-   These MUST match the Supabase
-   student_mastery CHECK constraint.
----------------------------------- */
+type Confidence = 'low' | 'medium' | 'high';
+
+type ConfidenceRecord = Record<number, Confidence>;
+
+const confidenceLabels: Record<Confidence, string> = {
+  low: 'Low confidence',
+  medium: 'Medium confidence',
+  high: 'High confidence',
+};
+
+const confidenceDescriptions: Record<Confidence, string> = {
+  low: 'I was guessing',
+  medium: 'I was somewhat sure',
+  high: 'I was very sure',
+};
+
+/* =========================================================
+   MASTERY
+========================================================= */
 
 function getMasteryStatus(
   score: number
@@ -137,23 +158,65 @@ function getMasteryStatus(
   | 'learning'
   | 'needs_attention'
   | 'mastered' {
-  if (score < 40) {
-    return 'not_started';
-  }
-
-  if (score < 75) {
-    return 'needs_attention';
-  }
-
+  if (score < 40) return 'not_started';
+  if (score < 75) return 'needs_attention';
   return 'mastered';
 }
 
-/* ---------------------------------
-   Component
----------------------------------- */
+/* =========================================================
+   NOVELTY: ROOT CAUSE ANALYSIS
+========================================================= */
+
+function getDiagnosis(
+  isCorrect: boolean,
+  confidence: Confidence
+) {
+  if (isCorrect && confidence === 'high') {
+    return {
+      title: 'Strong understanding',
+      description:
+        'You answered correctly and were confident. This indicates stable understanding of the concept.',
+      type: 'strong',
+      action: 'Continue to the next concept.',
+    };
+  }
+
+  if (isCorrect && confidence === 'low') {
+    return {
+      title: 'Fragile understanding',
+      description:
+        'You answered correctly but had low confidence. You may know the answer without fully understanding why.',
+      type: 'fragile',
+      action: 'Review the concept and explain it in your own words.',
+    };
+  }
+
+  if (!isCorrect && confidence === 'high') {
+    return {
+      title: 'Critical knowledge gap',
+      description:
+        'You were confident but selected the wrong answer. This suggests a misconception rather than simple uncertainty.',
+      type: 'critical',
+      action: 'Relearn this concept before attempting another assessment.',
+    };
+  }
+
+  return {
+    title: 'Learning gap',
+    description:
+      'You selected the wrong answer and were unsure. The concept needs additional practice.',
+    type: 'gap',
+    action: 'Review the topic and practice a few similar questions.',
+  };
+}
+
+/* =========================================================
+   COMPONENT
+========================================================= */
 
 export function Assessment() {
   const assessments = useAssessments();
+  const navigate = useNavigate();
 
   const [filter, setFilter] = useState<
     'all' | 'available' | 'completed'
@@ -162,8 +225,7 @@ export function Assessment() {
   const [activeAssessment, setActiveAssessment] =
     useState<string | null>(null);
 
-  const [currentQuestion, setCurrentQuestion] =
-    useState(0);
+  const [currentQuestion, setCurrentQuestion] = useState(0);
 
   const [selectedAnswer, setSelectedAnswer] =
     useState<number | null>(null);
@@ -171,41 +233,46 @@ export function Assessment() {
   const [answers, setAnswers] =
     useState<Record<number, number>>({});
 
-  const [submitted, setSubmitted] =
-    useState(false);
+  /*
+   * NEW:
+   * Stores confidence for every answered question.
+   */
+  const [confidence, setConfidence] =
+    useState<ConfidenceRecord>({});
 
-  const [finished, setFinished] =
-    useState(false);
+  /*
+   * NEW:
+   * Confidence is selected after the answer is revealed.
+   */
+  const [selectedConfidence, setSelectedConfidence] =
+    useState<Confidence | null>(null);
 
-  const [score, setScore] =
-    useState(0);
+  const [submitted, setSubmitted] = useState(false);
 
-  const [saving, setSaving] =
-    useState(false);
+  const [finished, setFinished] = useState(false);
+
+  const [score, setScore] = useState(0);
+
+  const [saving, setSaving] = useState(false);
 
   const [saveError, setSaveError] =
     useState<string | null>(null);
 
-  /*
-   * Keeps the Supabase assessment ID.
-   *
-   * This is important because if saving fails
-   * after the assessment row is created,
-   * "Try Saving Again" must reuse the same
-   * assessment instead of creating duplicates.
-   */
   const [databaseAssessmentId, setDatabaseAssessmentId] =
     useState<string | null>(null);
 
-  /*
-   * Keeps the final answers so the retry button
-   * can run the save operation again.
-   */
   const [finalAnswersForRetry, setFinalAnswersForRetry] =
     useState<Record<number, number> | null>(null);
 
-  const filteredAssessments =
-    assessments.filter((assessment) => {
+  const [finalConfidenceForRetry, setFinalConfidenceForRetry] =
+    useState<ConfidenceRecord | null>(null);
+
+  /* =========================================================
+     FILTERS
+  ========================================================= */
+
+  const filteredAssessments = assessments.filter(
+    (assessment) => {
       if (filter === 'all') return true;
 
       if (filter === 'available') {
@@ -215,39 +282,27 @@ export function Assessment() {
         );
       }
 
-      if (filter === 'completed') {
-        return assessment.status === 'completed';
-      }
-
-      return true;
-    });
+      return assessment.status === 'completed';
+    }
+  );
 
   const tabs = [
-    {
-      key: 'all' as const,
-      label: 'All',
-    },
-    {
-      key: 'available' as const,
-      label: 'Available',
-    },
-    {
-      key: 'completed' as const,
-      label: 'Completed',
-    },
+    { key: 'all' as const, label: 'All' },
+    { key: 'available' as const, label: 'Available' },
+    { key: 'completed' as const, label: 'Completed' },
   ];
 
-  /* ---------------------------------
-     Start Assessment
-  ---------------------------------- */
+  /* =========================================================
+     START
+  ========================================================= */
 
-  const startAssessment = (
-    assessmentId: string
-  ) => {
+  const startAssessment = (assessmentId: string) => {
     setActiveAssessment(assessmentId);
     setCurrentQuestion(0);
     setSelectedAnswer(null);
     setAnswers({});
+    setConfidence({});
+    setSelectedConfidence(null);
     setSubmitted(false);
     setFinished(false);
     setScore(0);
@@ -255,17 +310,17 @@ export function Assessment() {
     setSaveError(null);
     setDatabaseAssessmentId(null);
     setFinalAnswersForRetry(null);
+    setFinalConfidenceForRetry(null);
   };
 
-  /* ---------------------------------
-     Submit Current Answer
-  ---------------------------------- */
+  /* =========================================================
+     SUBMIT ANSWER
+  ========================================================= */
 
   const submitAnswer = () => {
     if (selectedAnswer === null) return;
 
-    const question =
-      quizQuestions[currentQuestion];
+    const question = quizQuestions[currentQuestion];
 
     setAnswers((previous) => ({
       ...previous,
@@ -273,24 +328,22 @@ export function Assessment() {
     }));
 
     setSubmitted(true);
+    setSelectedConfidence(null);
   };
 
-  /* ---------------------------------
-     SAVE RESULTS TO SUPABASE
-  ---------------------------------- */
+  /* =========================================================
+     SAVE RESULTS
+  ========================================================= */
 
   const saveAssessmentResults = async (
     finalAnswers: Record<number, number>,
-    finalScore: number
+    finalScore: number,
+    finalConfidence: ConfidenceRecord
   ) => {
     setSaving(true);
     setSaveError(null);
 
     try {
-      /* -------------------------------
-         Get logged-in user
-      -------------------------------- */
-
       const {
         data: { user },
         error: userError,
@@ -308,22 +361,19 @@ export function Assessment() {
         );
       }
 
-      /* -------------------------------
+      /* -----------------------------------------------------
          Load topic IDs
-      -------------------------------- */
+      ----------------------------------------------------- */
 
-      const topicNames =
-        quizQuestions.map(
-          (question) => question.topic
-        );
+      const topicNames = quizQuestions.map(
+        (question) => question.topic
+      );
 
-      const {
-        data: topicData,
-        error: topicError,
-      } = await supabase
-        .from('topics')
-        .select('id, name')
-        .in('name', topicNames);
+      const { data: topicData, error: topicError } =
+        await supabase
+          .from('topics')
+          .select('id, name')
+          .in('name', topicNames);
 
       if (topicError) {
         throw new Error(
@@ -331,19 +381,15 @@ export function Assessment() {
         );
       }
 
-      const topicMap = new Map<
-        string,
-        string
-      >();
+      const topicMap = new Map<string, string>();
 
       (topicData ?? []).forEach((topic) => {
         topicMap.set(topic.name, topic.id);
       });
 
-      const missingTopics =
-        topicNames.filter(
-          (name) => !topicMap.has(name)
-        );
+      const missingTopics = topicNames.filter(
+        (name) => !topicMap.has(name)
+      );
 
       if (missingTopics.length > 0) {
         throw new Error(
@@ -353,32 +399,27 @@ export function Assessment() {
         );
       }
 
-      /* -------------------------------
-         Calculate score
-      -------------------------------- */
+      /* -----------------------------------------------------
+         Score
+      ----------------------------------------------------- */
 
-      const correctCount =
-        quizQuestions.filter(
-          (question) =>
-            finalAnswers[question.id] ===
-            question.correctAnswer
-        ).length;
+      const correctCount = quizQuestions.filter(
+        (question) =>
+          finalAnswers[question.id] ===
+          question.correctAnswer
+      ).length;
 
-      const startedAt =
-        new Date(
-          Date.now() -
-            5 * 60 * 1000
-        ).toISOString();
+      const completedAt = new Date().toISOString();
 
-      const completedAt =
-        new Date().toISOString();
+      const startedAt = new Date(
+        Date.now() - 5 * 60 * 1000
+      ).toISOString();
 
-      /* -------------------------------
-         Create OR reuse assessment
-      -------------------------------- */
+      /* -----------------------------------------------------
+         Create / reuse assessment
+      ----------------------------------------------------- */
 
-      let assessmentId =
-        databaseAssessmentId;
+      let assessmentId = databaseAssessmentId;
 
       if (!assessmentId) {
         const {
@@ -392,10 +433,8 @@ export function Assessment() {
             title:
               'Machine Learning Diagnostic Assessment',
             assessment_type: 'diagnostic',
-            total_questions:
-              quizQuestions.length,
-            correct_answers:
-              correctCount,
+            total_questions: quizQuestions.length,
+            correct_answers: correctCount,
             score: finalScore,
             started_at: startedAt,
             completed_at: completedAt,
@@ -411,85 +450,50 @@ export function Assessment() {
         }
 
         assessmentId = assessmentRow.id;
-
-        setDatabaseAssessmentId(
-          assessmentRow.id
-        );
+        setDatabaseAssessmentId(assessmentRow.id);
       } else {
-        /*
-         * Retry path.
-         *
-         * Reuse the original assessment row.
-         */
-        const {
-          error: updateAssessmentError,
-        } = await supabase
-          .from('assessments')
-          .update({
-            correct_answers:
-              correctCount,
-            score: finalScore,
-            completed_at:
-              completedAt,
-            completed: true,
-          })
-          .eq('id', assessmentId)
-          .eq('student_id', user.id);
+        const { error: updateError } =
+          await supabase
+            .from('assessments')
+            .update({
+              correct_answers: correctCount,
+              score: finalScore,
+              completed_at: completedAt,
+              completed: true,
+            })
+            .eq('id', assessmentId)
+            .eq('student_id', user.id);
 
-        if (updateAssessmentError) {
+        if (updateError) {
           throw new Error(
-            `Unable to update assessment: ${updateAssessmentError.message}`
+            `Unable to update assessment: ${updateError.message}`
           );
         }
       }
 
-      /* -------------------------------
-         Save student answers
-      -------------------------------- */
+      /* -----------------------------------------------------
+         Student answers
+      ----------------------------------------------------- */
 
-      /*
-       * Delete answers belonging to this
-       * assessment first.
-       *
-       * This makes the retry safe and prevents
-       * duplicate answers.
-       */
-      const {
-        error: deleteAnswersError,
-      } = await supabase
-        .from('student_answers')
-        .delete()
-        .eq(
-          'assessment_id',
-          assessmentId
-        )
-        .eq(
-          'student_id',
-          user.id
-        );
+      const { error: deleteError } =
+        await supabase
+          .from('student_answers')
+          .delete()
+          .eq('assessment_id', assessmentId)
+          .eq('student_id', user.id);
 
-      if (deleteAnswersError) {
+      if (deleteError) {
         throw new Error(
-          `Unable to prepare student answers: ${deleteAnswersError.message}`
+          `Unable to prepare student answers: ${deleteError.message}`
         );
       }
 
-      /*
-       * Load actual database questions.
-       *
-       * The local UI questions use IDs 1-5,
-       * while Supabase questions use UUIDs.
-       *
-       * Therefore we match them by question text.
-       */
       const {
         data: dbQuestions,
         error: dbQuestionsError,
       } = await supabase
         .from('questions')
-        .select(
-          'id, topic_id, question_text'
-        );
+        .select('id, topic_id, question_text');
 
       if (dbQuestionsError) {
         throw new Error(
@@ -497,81 +501,62 @@ export function Assessment() {
         );
       }
 
-      const databaseAnswerRows =
-        quizQuestions
-          .map((question) => {
-            const matchingQuestion =
-              (dbQuestions ?? []).find(
-                (dbQuestion) =>
-                  dbQuestion.question_text ===
-                  question.question
-              );
+      const databaseAnswerRows = quizQuestions
+        .map((question) => {
+          const matchingQuestion =
+            (dbQuestions ?? []).find(
+              (dbQuestion) =>
+                dbQuestion.question_text ===
+                question.question
+            );
 
-            if (!matchingQuestion) {
-              return null;
-            }
+          if (!matchingQuestion) return null;
 
-            const selected =
-              finalAnswers[question.id];
+          const selected =
+            finalAnswers[question.id];
 
-            const isCorrect =
-              selected ===
-              question.correctAnswer;
+          const isCorrect =
+            selected === question.correctAnswer;
 
-            return {
-              assessment_id:
-                assessmentId,
-              question_id:
-                matchingQuestion.id,
-              student_id:
-                user.id,
-              answer_text:
-                selected !== undefined
-                  ? question.options[
-                      selected
-                    ]
-                  : null,
-              is_correct:
-                isCorrect,
-              error_type:
-                isCorrect
-                  ? null
-                  : 'knowledge_gap',
-              ai_feedback:
-                isCorrect
-                  ? 'Correct answer.'
-                  : question.explanation,
-              answered_at:
-                completedAt,
-            };
-          })
-          .filter(
-            (
-              row
-            ): row is NonNullable<
-              typeof row
-            > =>
-              row !== null
+          const questionConfidence =
+            finalConfidence[question.id] ?? 'medium';
+
+          const diagnosis = getDiagnosis(
+            isCorrect,
+            questionConfidence
           );
 
-      /*
-       * Insert matching database answers.
-       *
-       * If the database does not yet contain
-       * these exact questions, we don't fail the
-       * whole assessment. Mastery can still be
-       * calculated from the local assessment.
-       */
-      if (
-        databaseAnswerRows.length > 0
-      ) {
-        const {
-          error: answerError,
-        } = await supabase
-          .from('student_answers')
-          .insert(
-            databaseAnswerRows
-          );
+          return {
+            assessment_id: assessmentId,
+            question_id: matchingQuestion.id,
+            student_id: user.id,
+            answer_text:
+              selected !== undefined
+                ? question.options[selected]
+                : null,
+            is_correct: isCorrect,
+            error_type: isCorrect
+              ? null
+              : diagnosis.type === 'critical'
+              ? 'misconception'
+              : 'knowledge_gap',
+            ai_feedback:
+              diagnosis.description,
+            answered_at: completedAt,
+          };
+        })
+        .filter(
+          (
+            row
+          ): row is NonNullable<typeof row> =>
+            row !== null
+        );
+
+      if (databaseAnswerRows.length > 0) {
+        const { error: answerError } =
+          await supabase
+            .from('student_answers')
+            .insert(databaseAnswerRows);
 
         if (answerError) {
           throw new Error(
@@ -580,13 +565,19 @@ export function Assessment() {
         }
       }
 
-      /* -------------------------------
-         Update student mastery
-      -------------------------------- */
+      /* -----------------------------------------------------
+         UPDATE MASTERY
+         
+         IMPORTANT ALTERATION:
+         We no longer blindly use 100/0.
+         
+         Confidence influences the diagnostic score.
+      ----------------------------------------------------- */
 
       for (const question of quizQuestions) {
-        const topicId =
-          topicMap.get(question.topic);
+        const topicId = topicMap.get(
+          question.topic
+        );
 
         if (!topicId) continue;
 
@@ -594,36 +585,50 @@ export function Assessment() {
           finalAnswers[question.id] ===
           question.correctAnswer;
 
-        /*
-         * For the current diagnostic:
-         *
-         * Correct = 100
-         * Wrong   = 0
-         */
-        const newScore =
-          isCorrect ? 100 : 0;
+        const questionConfidence =
+          finalConfidence[question.id] ?? 'medium';
 
-        /* -------------------------------
-           Check existing mastery
-        -------------------------------- */
+        let newScore = 0;
+
+        if (isCorrect && questionConfidence === 'high') {
+          newScore = 100;
+        } else if (
+          isCorrect &&
+          questionConfidence === 'medium'
+        ) {
+          newScore = 85;
+        } else if (
+          isCorrect &&
+          questionConfidence === 'low'
+        ) {
+          newScore = 65;
+        } else if (
+          !isCorrect &&
+          questionConfidence === 'high'
+        ) {
+          /*
+           * Wrong + high confidence =
+           * misconception.
+           */
+          newScore = 20;
+        } else {
+          /*
+           * Wrong + low/medium confidence =
+           * normal learning gap.
+           */
+          newScore = 30;
+        }
 
         const {
           data: existingMastery,
-          error:
-            masteryReadError,
+          error: masteryReadError,
         } = await supabase
           .from('student_mastery')
           .select(
-            'id, mastery_score, assessment_count, last_assessed_at'
+            'id, mastery_score, assessment_count'
           )
-          .eq(
-            'student_id',
-            user.id
-          )
-          .eq(
-            'topic_id',
-            topicId
-          )
+          .eq('student_id', user.id)
+          .eq('topic_id', topicId)
           .maybeSingle();
 
         if (masteryReadError) {
@@ -631,10 +636,6 @@ export function Assessment() {
             `Unable to read mastery for ${question.topic}: ${masteryReadError.message}`
           );
         }
-
-        /* -------------------------------
-           Existing mastery
-        -------------------------------- */
 
         if (existingMastery) {
           const oldScore =
@@ -647,45 +648,18 @@ export function Assessment() {
               existingMastery.assessment_count
             ) || 0;
 
+          const newCount = oldCount + 1;
+
           /*
-           * If this exact assessment is being
-           * retried, don't count it twice.
+           * Running average instead of replacing
+           * mastery with 100 or 0.
            */
-          const sameAssessment =
-            existingMastery.last_assessed_at ===
-            completedAt;
+          const newScoreAverage = Math.round(
+            (oldScore * oldCount + newScore) /
+              newCount
+          );
 
-          const newCount =
-            sameAssessment
-              ? oldCount
-              : oldCount + 1;
-
-          let newScoreAverage: number;
-
-          if (sameAssessment) {
-            /*
-             * Retry of the same assessment:
-             * simply use its latest result.
-             */
-            newScoreAverage =
-              newScore;
-          } else {
-            /*
-             * New assessment:
-             * running average.
-             */
-            newScoreAverage =
-              Math.round(
-                (oldScore * oldCount +
-                  newScore) /
-                  newCount
-              );
-          }
-
-          const {
-            error:
-              masteryUpdateError,
-          } = await supabase
+          const { error } = await supabase
             .from('student_mastery')
             .update({
               mastery_score:
@@ -696,12 +670,9 @@ export function Assessment() {
                 getMasteryStatus(
                   newScoreAverage
                 ),
-              assessment_count:
-                newCount,
-              last_assessed_at:
-                completedAt,
-              updated_at:
-                completedAt,
+              assessment_count: newCount,
+              last_assessed_at: completedAt,
+              updated_at: completedAt,
             })
             .eq(
               'id',
@@ -712,59 +683,34 @@ export function Assessment() {
               user.id
             );
 
-          if (masteryUpdateError) {
+          if (error) {
             throw new Error(
-              `Unable to update mastery for ${question.topic}: ${masteryUpdateError.message}`
+              `Unable to update mastery for ${question.topic}: ${error.message}`
             );
           }
-        }
+        } else {
+          const { error } =
+            await supabase
+              .from('student_mastery')
+              .insert({
+                student_id: user.id,
+                topic_id: topicId,
+                mastery_score: newScore,
+                confidence_score: newScore,
+                status:
+                  getMasteryStatus(newScore),
+                assessment_count: 1,
+                last_assessed_at:
+                  completedAt,
+              });
 
-        /* -------------------------------
-           First mastery record
-        -------------------------------- */
-
-        else {
-          const {
-            error:
-              masteryInsertError,
-          } = await supabase
-            .from('student_mastery')
-            .insert({
-              student_id:
-                user.id,
-              topic_id:
-                topicId,
-              mastery_score:
-                newScore,
-              confidence_score:
-                newScore,
-              status:
-                getMasteryStatus(
-                  newScore
-                ),
-              assessment_count: 1,
-              last_assessed_at:
-                completedAt,
-            });
-
-          if (masteryInsertError) {
+          if (error) {
             throw new Error(
-              `Unable to create mastery for ${question.topic}: ${masteryInsertError.message}`
+              `Unable to create mastery for ${question.topic}: ${error.message}`
             );
           }
         }
       }
-
-      console.log(
-        'Assessment successfully saved:',
-        {
-          assessmentId,
-          score: finalScore,
-          correctCount,
-          totalQuestions:
-            quizQuestions.length,
-        }
-      );
     } catch (error) {
       console.error(
         'Assessment save error:',
@@ -777,15 +723,29 @@ export function Assessment() {
     }
   };
 
-  /* ---------------------------------
-     Finish / Next Question
-  ---------------------------------- */
+  /* =========================================================
+     NEXT QUESTION
+  ========================================================= */
 
   const nextQuestion = async () => {
-    if (!submitted) return;
+    if (
+      !submitted ||
+      selectedConfidence === null
+    ) {
+      return;
+    }
+
+    const question =
+      quizQuestions[currentQuestion];
+
+    setConfidence((previous) => ({
+      ...previous,
+      [question.id]:
+        selectedConfidence,
+    }));
 
     /*
-     * Normal next question.
+     * Not final question.
      */
     if (
       currentQuestion <
@@ -796,33 +756,33 @@ export function Assessment() {
       );
 
       setSelectedAnswer(null);
+      setSelectedConfidence(null);
       setSubmitted(false);
 
       return;
     }
 
-    /*
-     * Final question.
-     */
+    /* -------------------------------------------------------
+       FINAL QUESTION
+    ------------------------------------------------------- */
 
-    if (selectedAnswer === null) {
-      return;
-    }
-
-    const finalAnswers: Record<
-      number,
-      number
-    > = {
+    const finalAnswers = {
       ...answers,
-      [quizQuestions[currentQuestion].id]:
-        selectedAnswer,
+      [question.id]:
+        selectedAnswer!,
+    };
+
+    const finalConfidence = {
+      ...confidence,
+      [question.id]:
+        selectedConfidence,
     };
 
     const correctCount =
       quizQuestions.filter(
-        (question) =>
-          finalAnswers[question.id] ===
-          question.correctAnswer
+        (q) =>
+          finalAnswers[q.id] ===
+          q.correctAnswer
       ).length;
 
     const finalScore = Math.round(
@@ -835,11 +795,15 @@ export function Assessment() {
     setFinalAnswersForRetry(
       finalAnswers
     );
+    setFinalConfidenceForRetry(
+      finalConfidence
+    );
 
     try {
       await saveAssessmentResults(
         finalAnswers,
-        finalScore
+        finalScore,
+        finalConfidence
       );
 
       setFinished(true);
@@ -852,13 +816,14 @@ export function Assessment() {
     }
   };
 
-  /* ---------------------------------
-     Retry Save
-  ---------------------------------- */
+  /* =========================================================
+     RETRY SAVE
+  ========================================================= */
 
   const retrySave = async () => {
     if (
       !finalAnswersForRetry ||
+      !finalConfidenceForRetry ||
       saving
     ) {
       return;
@@ -867,7 +832,8 @@ export function Assessment() {
     try {
       await saveAssessmentResults(
         finalAnswersForRetry,
-        score
+        score,
+        finalConfidenceForRetry
       );
 
       setSaveError(null);
@@ -881,9 +847,9 @@ export function Assessment() {
     }
   };
 
-  /* ---------------------------------
-     Exit Assessment
-  ---------------------------------- */
+  /* =========================================================
+     EXIT
+  ========================================================= */
 
   const exitAssessment = () => {
     if (saving) return;
@@ -892,23 +858,23 @@ export function Assessment() {
     setCurrentQuestion(0);
     setSelectedAnswer(null);
     setAnswers({});
+    setConfidence({});
+    setSelectedConfidence(null);
     setSubmitted(false);
     setFinished(false);
     setScore(0);
     setSaveError(null);
     setDatabaseAssessmentId(null);
     setFinalAnswersForRetry(null);
+    setFinalConfidenceForRetry(null);
   };
 
-  /* ---------------------------------
-     Restart Assessment
-  ---------------------------------- */
+  /* =========================================================
+     RESTART
+  ========================================================= */
 
   const restartAssessment = () => {
-    if (
-      !activeAssessment ||
-      saving
-    ) {
+    if (!activeAssessment || saving) {
       return;
     }
 
@@ -917,9 +883,9 @@ export function Assessment() {
     );
   };
 
-  /* ---------------------------------
-     Save Error Screen
-  ---------------------------------- */
+  /* =========================================================
+     ERROR SCREEN
+  ========================================================= */
 
   if (
     activeAssessment &&
@@ -927,61 +893,50 @@ export function Assessment() {
   ) {
     return (
       <div className="max-w-4xl mx-auto">
-        <motion.div
-          initial={{
-            opacity: 0,
-            y: 20,
-          }}
-          animate={{
-            opacity: 1,
-            y: 0,
-          }}
-        >
-          <Card className="p-8 text-center border border-red-200">
-            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-red-50">
-              <AlertCircle className="h-8 w-8 text-red-500" />
-            </div>
+        <Card className="p-8 text-center border border-red-200">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-red-50">
+            <AlertCircle className="h-8 w-8 text-red-500" />
+          </div>
 
-            <h1 className="text-2xl font-bold text-text-primary">
-              Results couldn't be saved
-            </h1>
+          <h1 className="text-2xl font-bold text-text-primary">
+            Results couldn't be saved
+          </h1>
 
-            <p className="mt-2 text-text-secondary">
-              Your score was calculated, but EchoLearn
-              couldn't update your learning profile.
+          <p className="mt-2 text-text-secondary">
+            Your score was calculated, but EchoLearn
+            couldn't update your learning profile.
+          </p>
+
+          <div className="mt-5 rounded-xl bg-red-50 border border-red-100 p-4 text-left">
+            <p className="text-sm text-red-700 break-words">
+              {saveError}
             </p>
+          </div>
 
-            <div className="mt-5 rounded-xl bg-red-50 border border-red-100 p-4 text-left">
-              <p className="text-sm text-red-700 break-words">
-                {saveError}
-              </p>
-            </div>
-
-            <div className="mt-6 flex justify-center">
-              <Button
-                variant="primary"
-                disabled={saving}
-                onClick={retrySave}
-              >
-                {saving ? (
-                  <>
-                    Saving Results...
-                    <Loader2 className="h-4 w-4 ml-2 animate-spin" />
-                  </>
-                ) : (
-                  'Try Saving Again'
-                )}
-              </Button>
-            </div>
-          </Card>
-        </motion.div>
+          <div className="mt-6 flex justify-center">
+            <Button
+              variant="primary"
+              disabled={saving}
+              onClick={retrySave}
+            >
+              {saving ? (
+                <>
+                  Saving Results...
+                  <Loader2 className="h-4 w-4 ml-2 animate-spin" />
+                </>
+              ) : (
+                'Try Saving Again'
+              )}
+            </Button>
+          </div>
+        </Card>
       </div>
     );
   }
 
-  /* ---------------------------------
-     Final Result
-  ---------------------------------- */
+  /* =========================================================
+     FINAL RESULT
+  ========================================================= */
 
   if (
     activeAssessment &&
@@ -993,124 +948,300 @@ export function Assessment() {
           quizQuestions.length
       );
 
-    return (
-      <div className="max-w-4xl mx-auto">
-        <motion.div
-          initial={{
-            opacity: 0,
-            y: 20,
-          }}
-          animate={{
-            opacity: 1,
-            y: 0,
-          }}
-        >
-          <Card className="p-8 text-center">
-            <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-indigo-50">
-              <Trophy className="h-10 w-10 text-indigo-600" />
-            </div>
+    const confidenceEntries =
+      Object.entries(confidence);
 
-            <h1 className="text-3xl font-bold text-text-primary">
-              Assessment Complete!
-            </h1>
+    const highConfidenceWrong =
+      quizQuestions.filter(
+        (question) =>
+          confidence[question.id] ===
+            'high' &&
+          finalAnswersForRetry &&
+          finalAnswersForRetry[
+            question.id
+          ] !== question.correctAnswer
+      );
+
+    const lowConfidenceCorrect =
+      quizQuestions.filter(
+        (question) =>
+          confidence[question.id] ===
+            'low' &&
+          finalAnswersForRetry &&
+          finalAnswersForRetry[
+            question.id
+          ] === question.correctAnswer
+      );
+
+    const weakTopics =
+      quizQuestions
+        .filter(
+          (question) => {
+            const answer =
+              finalAnswersForRetry?.[
+                question.id
+              ];
+
+            return (
+              answer !==
+              question.correctAnswer
+            );
+          }
+        )
+        .map(
+          (question) =>
+            question.topic
+        );
+
+    const uniqueWeakTopics = [
+      ...new Set(weakTopics),
+    ];
+
+    return (
+      <div className="max-w-4xl mx-auto space-y-6">
+        <Card className="p-8 text-center">
+          <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-indigo-50">
+            <Trophy className="h-10 w-10 text-indigo-600" />
+          </div>
+
+          <h1 className="text-3xl font-bold text-text-primary">
+            Assessment Complete!
+          </h1>
+
+          <p className="mt-2 text-text-secondary">
+            Your performance has been analyzed beyond
+            just the score.
+          </p>
+
+          <div className="my-8">
+            <div className="text-6xl font-bold text-primary">
+              {score}%
+            </div>
 
             <p className="mt-2 text-text-secondary">
-              Here's how you performed.
+              {correctCount} of{' '}
+              {quizQuestions.length} questions correct
             </p>
+          </div>
 
-            <div className="my-8">
-              <div className="text-6xl font-bold text-primary">
-                {score}%
+          {/* =================================================
+              NOVELTY: LEARNING DIAGNOSIS
+          ================================================= */}
+
+          <div className="text-left space-y-4 mb-8">
+            <div className="flex items-center gap-2">
+              <Brain className="h-5 w-5 text-primary" />
+
+              <h2 className="text-lg font-semibold text-text-primary">
+                Learning Diagnosis
+              </h2>
+            </div>
+
+            {highConfidenceWrong.length > 0 && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+                <div className="flex gap-3">
+                  <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />
+
+                  <div>
+                    <p className="font-semibold text-red-700">
+                      Possible misconception detected
+                    </p>
+
+                    <p className="mt-1 text-sm text-red-600">
+                      You were confident in an answer
+                      that was incorrect. This is more
+                      significant than simply guessing
+                      incorrectly and should be reviewed.
+                    </p>
+
+                    <p className="mt-2 text-sm font-medium text-red-700">
+                      Topics:{' '}
+                      {highConfidenceWrong
+                        .map(
+                          (q) => q.topic
+                        )
+                        .join(', ')}
+                    </p>
+                  </div>
+                </div>
               </div>
+            )}
 
-              <p className="mt-2 text-text-secondary">
-                {correctCount} of{' '}
-                {quizQuestions.length}{' '}
-                questions correct
+            {lowConfidenceCorrect.length > 0 && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <div className="flex gap-3">
+                  <Lightbulb className="h-5 w-5 text-amber-600 shrink-0" />
+
+                  <div>
+                    <p className="font-semibold text-amber-700">
+                      Fragile knowledge detected
+                    </p>
+
+                    <p className="mt-1 text-sm text-amber-600">
+                      You got some answers correct but
+                      were not confident. This suggests
+                      the knowledge may not yet be stable.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {uniqueWeakTopics.length > 0 && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex gap-3">
+                  <Target className="h-5 w-5 text-primary shrink-0" />
+
+                  <div>
+                    <p className="font-semibold text-text-primary">
+                      Priority learning gaps
+                    </p>
+
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {uniqueWeakTopics.map(
+                        (topic) => (
+                          <Badge
+                            key={topic}
+                            variant="warning"
+                          >
+                            {topic}
+                          </Badge>
+                        )
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {highConfidenceWrong.length === 0 &&
+              lowConfidenceCorrect.length === 0 &&
+              uniqueWeakTopics.length === 0 && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                  <div className="flex gap-3">
+                    <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+
+                    <div>
+                      <p className="font-semibold text-emerald-700">
+                        Strong learning profile
+                      </p>
+
+                      <p className="text-sm text-emerald-600 mt-1">
+                        Your answers indicate good
+                        understanding and confidence.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+          </div>
+
+          {/* =================================================
+              CONFIDENCE SUMMARY
+          ================================================= */}
+
+          <div className="text-left mb-8">
+            <h2 className="text-lg font-semibold text-text-primary mb-3">
+              Confidence Profile
+            </h2>
+
+            <div className="grid grid-cols-3 gap-3">
+              {(
+                ['high', 'medium', 'low'] as Confidence[]
+              ).map((level) => {
+                const count =
+                  confidenceEntries.filter(
+                    ([, value]) =>
+                      value === level
+                  ).length;
+
+                return (
+                  <div
+                    key={level}
+                    className="rounded-xl bg-slate-50 p-4 text-center"
+                  >
+                    <p className="text-xs text-text-secondary">
+                      {confidenceLabels[level]}
+                    </p>
+
+                    <p className="mt-1 text-2xl font-bold text-text-primary">
+                      {count}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* =================================================
+              RECOMMENDED NEXT ACTION
+          ================================================= */}
+
+          <div className="mb-8 rounded-xl bg-primary/5 border border-primary/10 p-5 text-left">
+            <div className="flex gap-3">
+              <Lightbulb className="h-5 w-5 text-primary shrink-0" />
+
+              <div>
+                <p className="font-semibold text-text-primary">
+                  Recommended next action
+                </p>
+
+                <p className="mt-1 text-sm text-text-secondary">
+                  {highConfidenceWrong.length > 0
+                    ? 'Review the misconception topics first, then retake targeted questions.'
+                    : lowConfidenceCorrect.length > 0
+                    ? 'Strengthen the concepts you answered correctly but were unsure about.'
+                    : uniqueWeakTopics.length > 0
+                    ? 'Focus your next learning session on the identified learning gaps.'
+                    : 'Move to a harder assessment to validate your mastery.'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-8 rounded-xl bg-emerald-50 border border-emerald-100 p-4">
+            <div className="flex items-center justify-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+
+              <p className="text-sm font-medium text-emerald-700">
+                Your results have been saved to your
+                EchoLearn learning profile.
               </p>
             </div>
+          </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-              <div className="rounded-xl bg-slate-50 p-4">
-                <p className="text-xs text-text-secondary">
-                  Questions
-                </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Button
+              variant="secondary"
+              onClick={exitAssessment}
+            >
+              Back to Assessments
+            </Button>
 
-                <p className="mt-1 text-xl font-semibold">
-                  {quizQuestions.length}
-                </p>
-              </div>
+            <Button
+              variant="primary"
+              onClick={restartAssessment}
+            >
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Retake Assessment
+            </Button>
 
-              <div className="rounded-xl bg-slate-50 p-4">
-                <p className="text-xs text-text-secondary">
-                  Correct
-                </p>
-
-                <p className="mt-1 text-xl font-semibold text-success">
-                  {correctCount}
-                </p>
-              </div>
-
-              <div className="rounded-xl bg-slate-50 p-4">
-                <p className="text-xs text-text-secondary">
-                  Score
-                </p>
-
-                <p className="mt-1 text-xl font-semibold text-primary">
-                  {score}%
-                </p>
-              </div>
-            </div>
-
-            <div className="mb-8 rounded-xl bg-emerald-50 border border-emerald-100 p-4">
-              <div className="flex items-center justify-center gap-2">
-                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-
-                <p className="text-sm font-medium text-emerald-700">
-                  Your results have been saved to your
-                  EchoLearn learning profile.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <Button
-                variant="secondary"
-                onClick={exitAssessment}
-              >
-                Back to Assessments
-              </Button>
-
-              <Button
-                variant="primary"
-                onClick={
-                  restartAssessment
-                }
-              >
-                <RotateCcw className="h-4 w-4 mr-2" />
-                Retake Assessment
-              </Button>
-
-              <Button
-                variant="primary"
-                onClick={() =>
-                  window.location.href =
-                    '/gaps'
-                }
-              >
-                View Learning Gaps
-                <ArrowRight className="h-4 w-4 ml-2" />
-              </Button>
-            </div>
-          </Card>
-        </motion.div>
+            <Button
+              variant="primary"
+              onClick={() => navigate('/gaps')}
+            >
+              View Learning Gaps
+              <ArrowRight className="h-4 w-4 ml-2" />
+            </Button>
+          </div>
+        </Card>
       </div>
     );
   }
 
-  /* ---------------------------------
-     Quiz Screen
-  ---------------------------------- */
+  /* =========================================================
+     QUIZ SCREEN
+  ========================================================= */
 
   if (activeAssessment) {
     const question =
@@ -1119,6 +1250,15 @@ export function Assessment() {
     const isCorrect =
       selectedAnswer ===
       question.correctAnswer;
+
+    const diagnosis =
+      submitted &&
+      selectedConfidence
+        ? getDiagnosis(
+            isCorrect,
+            selectedConfidence
+          )
+        : null;
 
     return (
       <div className="max-w-4xl mx-auto space-y-6">
@@ -1141,9 +1281,6 @@ export function Assessment() {
         <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
           <motion.div
             className="h-full bg-primary"
-            initial={{
-              width: 0,
-            }}
             animate={{
               width: `${
                 ((currentQuestion + 1) /
@@ -1184,6 +1321,8 @@ export function Assessment() {
               <h1 className="text-xl md:text-2xl font-bold text-text-primary leading-relaxed">
                 {question.question}
               </h1>
+
+              {/* ANSWERS */}
 
               <div className="mt-7 space-y-3">
                 {question.options.map(
@@ -1268,6 +1407,8 @@ export function Assessment() {
                 )}
               </div>
 
+              {/* EXPLANATION */}
+
               {submitted && (
                 <motion.div
                   initial={{
@@ -1306,6 +1447,123 @@ export function Assessment() {
                 </motion.div>
               )}
 
+              {/* =================================================
+                  NOVELTY: CONFIDENCE CAPTURE
+              ================================================= */}
+
+              {submitted && (
+                <motion.div
+                  initial={{
+                    opacity: 0,
+                    y: 10,
+                  }}
+                  animate={{
+                    opacity: 1,
+                    y: 0,
+                  }}
+                  className="mt-6"
+                >
+                  <div className="rounded-xl border border-primary/10 bg-primary/5 p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Brain className="h-5 w-5 text-primary" />
+
+                      <p className="font-semibold text-text-primary">
+                        How confident were you?
+                      </p>
+                    </div>
+
+                    <p className="text-sm text-text-secondary mb-4">
+                      This helps EchoLearn understand
+                      whether the gap is uncertainty or
+                      a misconception.
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {(
+                        [
+                          'low',
+                          'medium',
+                          'high',
+                        ] as Confidence[]
+                      ).map(
+                        (level) => (
+                          <button
+                            key={level}
+                            type="button"
+                            disabled={saving}
+                            onClick={() =>
+                              setSelectedConfidence(
+                                level
+                              )
+                            }
+                            className={`rounded-xl border-2 p-3 text-left transition-all ${
+                              selectedConfidence ===
+                              level
+                                ? 'border-primary bg-white shadow-sm'
+                                : 'border-border bg-white hover:border-primary/50'
+                            }`}
+                          >
+                            <p className="text-sm font-semibold text-text-primary">
+                              {confidenceLabels[
+                                level
+                              ]}
+                            </p>
+
+                            <p className="text-xs text-text-secondary mt-1">
+                              {
+                                confidenceDescriptions[
+                                  level
+                                ]
+                              }
+                            </p>
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* =================================================
+                  LIVE ROOT CAUSE
+              ================================================= */}
+
+              {submitted &&
+                selectedConfidence &&
+                diagnosis && (
+                  <motion.div
+                    initial={{
+                      opacity: 0,
+                      y: 10,
+                    }}
+                    animate={{
+                      opacity: 1,
+                      y: 0,
+                    }}
+                    className="mt-5 rounded-xl bg-slate-50 border border-border p-4"
+                  >
+                    <div className="flex gap-3">
+                      <Target className="h-5 w-5 text-primary shrink-0" />
+
+                      <div>
+                        <p className="font-semibold text-text-primary">
+                          {diagnosis.title}
+                        </p>
+
+                        <p className="mt-1 text-sm text-text-secondary">
+                          {diagnosis.description}
+                        </p>
+
+                        <p className="mt-2 text-sm font-medium text-primary">
+                          Next step: {diagnosis.action}
+                        </p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+              {/* BUTTON */}
+
               <div className="mt-7 flex justify-end">
                 {!submitted ? (
                   <Button
@@ -1325,7 +1583,11 @@ export function Assessment() {
                 ) : (
                   <Button
                     variant="primary"
-                    disabled={saving}
+                    disabled={
+                      saving ||
+                      selectedConfidence ===
+                        null
+                    }
                     onClick={
                       nextQuestion
                     }
@@ -1358,9 +1620,9 @@ export function Assessment() {
     );
   }
 
-  /* ---------------------------------
-     Assessment List
-  ---------------------------------- */
+  /* =========================================================
+     ASSESSMENT LIST
+  ========================================================= */
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">

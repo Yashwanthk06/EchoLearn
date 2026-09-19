@@ -10,7 +10,6 @@ import {
   AlertCircle,
   CheckCircle2,
 } from 'lucide-react';
-import { useUser } from '../../hooks/useMockData';
 import { Avatar } from '../ui/Avatar';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -34,9 +33,18 @@ interface Notification {
 }
 
 export const TopBar: React.FC<TopBarProps> = ({ title, subtitle }) => {
-  const user = useUser();
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const navigate = useNavigate();
+
+  /* Derive a friendly display name from the auth user */
+  const displayName =
+    user?.user_metadata?.full_name ||
+    user?.user_metadata?.name ||
+    user?.email?.split('@')[0] ||
+    'Student';
+
+  const displayEmail = user?.email ?? '';
+
 
   const [greeting, setGreeting] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
@@ -191,7 +199,7 @@ export const TopBar: React.FC<TopBarProps> = ({ title, subtitle }) => {
       {/* LEFT */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900">
-          {title || `${greeting}, ${user.name}`}
+          {title || `${greeting}, ${displayName}`}
         </h1>
 
         <p className="text-sm text-slate-500 mt-1">
@@ -402,14 +410,14 @@ export const TopBar: React.FC<TopBarProps> = ({ title, subtitle }) => {
             aria-expanded={profileOpen}
           >
             <Avatar
-              name={user.name}
-              src={user.avatarUrl}
+              name={displayName}
+              src={undefined}
               size="md"
             />
 
             <div className="hidden md:block text-left">
               <p className="text-sm font-semibold text-slate-800 leading-tight">
-                {user.name}
+                {displayName}
               </p>
 
               <p className="text-xs text-slate-500">
@@ -431,18 +439,18 @@ export const TopBar: React.FC<TopBarProps> = ({ title, subtitle }) => {
               <div className="p-4 border-b border-slate-100">
                 <div className="flex items-center gap-3">
                   <Avatar
-                    name={user.name}
-                    src={user.avatarUrl}
+                    name={displayName}
+                    src={undefined}
                     size="md"
                   />
 
                   <div className="min-w-0">
                     <p className="font-semibold text-slate-900 truncate">
-                      {user.name}
+                      {displayName}
                     </p>
 
                     <p className="text-xs text-slate-500 truncate">
-                      {user.email}
+                      {displayEmail}
                     </p>
                   </div>
                 </div>
