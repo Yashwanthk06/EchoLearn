@@ -121,9 +121,9 @@ None. Deliberately empty — the owner has not selected post-baseline direction.
 roadmap is a candidate backlog until the owner reviews this baseline.
 
 **Coverage:**
-- v1 requirements inventoried: 43
+- v1 requirements inventoried: 49 (implemented 17 / partial 16 / mock-only 6 / broken 3 / missing 6 / unverified 1)
 - Committed to a phase: 0 (roadmap deferred)
-- Uncommitted but inventoried: 43
+- Uncommitted but inventoried: 49
 
 ---
 
