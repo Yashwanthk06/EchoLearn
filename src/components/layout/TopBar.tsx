@@ -9,9 +9,12 @@ import {
   BookOpen,
   AlertCircle,
   CheckCircle2,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { Avatar } from '../ui/Avatar';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTheme } from '../../contexts/ThemeContext';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 
@@ -34,6 +37,7 @@ interface Notification {
 
 export const TopBar: React.FC<TopBarProps> = ({ title, subtitle }) => {
   const { user, signOut } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
 
   /* Derive a friendly display name from the auth user */
@@ -194,21 +198,30 @@ export const TopBar: React.FC<TopBarProps> = ({ title, subtitle }) => {
   };
 
   return (
-    <header className="flex items-center justify-between px-6 py-4 bg-white/80 backdrop-blur-sm border-b border-slate-200 sticky top-0 z-10">
-      
+    <header className="flex items-center justify-between px-6 py-4 bg-white/80 dark:bg-[#161d26]/85 backdrop-blur-sm border-b border-slate-200 dark:border-[#2f3a46] sticky top-0 z-10">
+
       {/* LEFT */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-[#e7e9ea]">
           {title || `${greeting}, ${displayName}`}
         </h1>
 
-        <p className="text-sm text-slate-500 mt-1">
+        <p className="text-sm text-slate-500 dark:text-[#9aa3ad] mt-1">
           {subtitle || "Let's continue learning today!"}
         </p>
       </div>
 
       {/* RIGHT */}
       <div className="flex items-center gap-4">
+
+        {/* THEME TOGGLE */}
+        <button
+          onClick={toggleTheme}
+          className="p-2 text-slate-500 dark:text-[#9aa3ad] hover:bg-slate-100 dark:hover:bg-[#242d38] rounded-full transition-colors"
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+        </button>
 
         {/* SEARCH */}
         <div className="relative" ref={searchRef}>
@@ -265,10 +278,10 @@ export const TopBar: React.FC<TopBarProps> = ({ title, subtitle }) => {
                     <button
                       key={topic.id}
                       onClick={() => handleTopicClick(topic.id)}
-                      className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-indigo-50 transition-colors text-left"
+                      className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-primary-50 dark:hover:bg-[#12352a] transition-colors text-left"
                     >
-                      <div className="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center">
-                        <BookOpen className="w-4 h-4 text-indigo-600" />
+                      <div className="w-9 h-9 rounded-lg bg-primary-50 dark:bg-[#12352a] flex items-center justify-center">
+                        <BookOpen className="w-4 h-4 text-primary" />
                       </div>
 
                       <div>
@@ -328,7 +341,7 @@ export const TopBar: React.FC<TopBarProps> = ({ title, subtitle }) => {
                 {notifications.length > 0 && (
                   <button
                     onClick={clearNotifications}
-                    className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
+                    className="text-xs font-medium text-primary hover:text-primary-deep"
                   >
                     Clear all
                   </button>
@@ -349,14 +362,14 @@ export const TopBar: React.FC<TopBarProps> = ({ title, subtitle }) => {
                       <div
                         className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
                           notification.icon === 'book'
-                            ? 'bg-indigo-100'
+                            ? 'bg-primary-50 dark:bg-[#12352a]'
                             : notification.icon === 'alert'
                             ? 'bg-amber-100'
                             : 'bg-emerald-100'
                         }`}
                       >
                         {notification.icon === 'book' && (
-                          <BookOpen className="w-4 h-4 text-indigo-600" />
+                          <BookOpen className="w-4 h-4 text-primary" />
                         )}
 
                         {notification.icon === 'alert' && (

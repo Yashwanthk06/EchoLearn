@@ -14,6 +14,7 @@ import { Gaps } from "./pages/Gaps";
 import { LearningPath } from "./pages/LearningPath";
 import { Progress } from "./pages/Progress";
 import { ParentUpdates } from "./pages/ParentUpdates";
+import { RewardsStore } from "./pages/RewardsStore";
 
 
 function ProtectedRoutes() {
@@ -126,6 +127,11 @@ export default function App() {
             <Route
               path="/parent-updates"
               element={<ParentUpdates />}
+            />
+
+            <Route
+              path="/rewards"
+              element={<RewardsStore />}
             />
 
           </Route>

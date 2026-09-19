@@ -6,7 +6,7 @@ import { ParticlesBg } from '../ui/particles-bg';
 
 export const AppLayout: React.FC = () => {
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="flex min-h-screen bg-slate-50 dark:bg-[#0f1419]">
       {/* Global particles background — z-0, pointer-events-none, behind everything */}
       <ParticlesBg particleCount={50} connectionDistance={120} />
 

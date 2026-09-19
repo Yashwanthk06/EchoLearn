@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useInView, useScroll, useTransform } from 'framer-motion';
 import { 
@@ -25,24 +25,13 @@ function ScrollReveal({ children, className = '' }: { children: React.ReactNode;
 }
 
 export function Landing() {
-  const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 50);
-    };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
 
   return (
     <div className="min-h-screen bg-background text-text-primary font-sans selection:bg-primary/20 selection:text-primary">
       {/* SECTION 1: NAVBAR */}
-      <nav 
-        className={`fixed top-0 inset-x-0 z-50 transition-all duration-300 ${
-          isScrolled ? 'bg-white/80 backdrop-blur-lg border-b border-slate-100 shadow-sm' : 'bg-transparent'
-        }`}
+      <nav
+        className="sticky top-0 inset-x-0 z-50 bg-white/85 backdrop-blur-lg border-b border-slate-100"
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-20">
@@ -71,7 +60,7 @@ export function Landing() {
                 Log In
               </Link>
               <Link to="/signup" className="flex items-center gap-2 gradient-ai text-white px-5 py-2.5 rounded-full text-sm font-semibold hover:shadow-lg hover:shadow-primary/30 transition-all hover:-translate-y-0.5">
-                Get Started
+                Start Learning
                 <ArrowRight className="w-4 h-4" />
               </Link>
             </div>
@@ -98,60 +87,44 @@ export function Landing() {
             <div className="h-px bg-slate-100 my-2"></div>
             <Link to="/login" className="px-4 py-2 font-medium text-text-primary text-center">Log In</Link>
             <Link to="/signup" className="gradient-ai text-white px-4 py-3 rounded-xl font-semibold text-center flex justify-center items-center gap-2">
-              Get Started <ArrowRight className="w-4 h-4" />
+              Start Learning <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
         )}
       </nav>
 
       {/* SECTION 2: HERO */}
-      <section className="relative min-h-[90vh] flex items-center pt-20 overflow-hidden bg-background">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-100/40 via-background to-background" />
-        
-        {/* Floating circles */}
-        <motion.div animate={{ y: [0, -20, 0], x: [0, 10, 0] }} transition={{ repeat: Infinity, duration: 8, ease: "easeInOut" }} className="absolute top-1/4 left-1/4 w-64 h-64 bg-primary/10 rounded-full blur-3xl" />
-        <motion.div animate={{ y: [0, 30, 0], x: [0, -20, 0] }} transition={{ repeat: Infinity, duration: 10, ease: "easeInOut" }} className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-accent/10 rounded-full blur-3xl" />
-        
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center">
-          <ScrollReveal>
-            <div className="inline-flex items-center gap-2 bg-primary-50 text-primary text-xs font-semibold tracking-wider uppercase px-4 py-1.5 rounded-full mb-8">
-              <Sparkles className="w-4 h-4" />
-              AI-POWERED PERSONAL LEARNING
-            </div>
-          </ScrollReveal>
-          
-          <ScrollReveal>
-            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-text-primary leading-tight tracking-tight max-w-4xl mx-auto">
-              Learning that understands <br className="hidden sm:block" />
-              where you're <span className="text-gradient-ai">stuck.</span>
+      <section className="relative min-h-[100dvh] flex items-center pt-24 pb-16 overflow-hidden bg-background">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center w-full">
+          <div className="text-left">
+            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-text-primary leading-none tracking-tighter">
+              Learning that finds where you're stuck.
             </h1>
-          </ScrollReveal>
 
-          <ScrollReveal>
-            <p className="text-lg sm:text-xl text-text-secondary max-w-2xl mx-auto mt-6 leading-relaxed">
-              EchoLearn doesn't just tell students what they got wrong. It discovers why they're struggling, identifies missing prerequisites, and adapts what they should learn next.
+            <p className="text-base text-text-secondary max-w-[65ch] mt-6 leading-relaxed">
+              EchoLearn traces mistakes to missing prerequisites and tells you what to study next.
             </p>
-          </ScrollReveal>
 
-          <ScrollReveal className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link to="/signup" className="w-full sm:w-auto flex items-center justify-center gap-2 gradient-ai text-white h-12 px-8 rounded-xl font-medium hover:shadow-lg hover:shadow-primary/30 transition-all hover:-translate-y-0.5">
-              Start Learning
-              <ArrowRight className="w-5 h-5" />
-            </Link>
-            <a href="#how-it-works" className="w-full sm:w-auto flex items-center justify-center gap-2 border border-slate-200 bg-white text-text-primary h-12 px-8 rounded-xl font-medium hover:bg-slate-50 transition-colors">
-              <Play className="w-5 h-5 text-primary" />
-              See How It Works
-            </a>
-          </ScrollReveal>
-
-          <ScrollReveal className="mt-12 flex flex-col items-center gap-3">
-            <div className="flex -space-x-3">
-              <div className="w-10 h-10 rounded-full bg-indigo-100 border-2 border-white flex items-center justify-center text-xs font-bold text-indigo-700 z-30">JD</div>
-              <div className="w-10 h-10 rounded-full bg-cyan-100 border-2 border-white flex items-center justify-center text-xs font-bold text-cyan-700 z-20">AK</div>
-              <div className="w-10 h-10 rounded-full bg-emerald-100 border-2 border-white flex items-center justify-center text-xs font-bold text-emerald-700 z-10">SL</div>
+            <div className="mt-8 flex flex-col sm:flex-row gap-4">
+              <Link to="/signup" className="flex items-center justify-center gap-2 bg-primary text-white h-12 px-8 rounded-xl font-medium hover:bg-primary-deep active:scale-[0.98] transition-all">
+                Start Learning
+                <ArrowRight className="w-5 h-5" />
+              </Link>
+              <a href="#how-it-works" className="flex items-center justify-center gap-2 border border-slate-200 bg-white text-text-primary h-12 px-8 rounded-xl font-medium hover:bg-slate-50 active:scale-[0.98] transition-colors">
+                <Play className="w-5 h-5 text-primary" />
+                See How It Works
+              </a>
             </div>
-            <p className="text-sm font-medium text-text-secondary">Join thousands of students learning smarter</p>
-          </ScrollReveal>
+          </div>
+          <div className="w-full">
+            <img
+              src="https://picsum.photos/seed/echolearn-student-studying/1200/900"
+              alt="Student studying with EchoLearn"
+              className="w-full aspect-[4/3] object-cover rounded-2xl border border-slate-100"
+              loading="eager"
+            />
+            <p className="text-sm text-text-secondary mt-3">A study session guided by prerequisite gaps.</p>
+          </div>
         </div>
       </section>
 
@@ -159,9 +132,6 @@ export function Landing() {
       <section id="features" className="py-24 bg-white relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <ScrollReveal>
-            <div className="inline-block bg-slate-100 text-slate-600 text-xs font-bold tracking-wider uppercase px-4 py-1.5 rounded-full mb-6">
-              INTELLIGENT LEARNING
-            </div>
             <h2 className="text-4xl font-bold text-text-primary mb-4">
               Your AI learning companion that <span className="text-gradient-ai">thinks.</span>
             </h2>
@@ -189,17 +159,17 @@ export function Landing() {
               <div className="flex flex-col sm:flex-row items-center gap-4 mb-10">
                 <div className="flex-1 bg-primary-50 border border-primary/20 rounded-xl px-4 py-3 w-full text-center sm:text-left">
                   <div className="text-[10px] uppercase font-bold text-primary mb-1 tracking-wider">Root Cause</div>
-                  <div className="font-semibold text-text-primary">📚 Training & Testing</div>
+                  <div className="font-semibold text-text-primary">Training and Testing</div>
                 </div>
                 <ArrowRight className="w-6 h-6 text-slate-400 rotate-90 sm:rotate-0 flex-shrink-0" />
                 <div className="flex-1 bg-warning-50 border border-warning/20 rounded-xl px-4 py-3 w-full text-center sm:text-left">
                   <div className="text-[10px] uppercase font-bold text-warning mb-1 tracking-wider">Struggling</div>
-                  <div className="font-semibold text-text-primary">⚠️ Overfitting</div>
+                  <div className="font-semibold text-text-primary">Overfitting</div>
                 </div>
                 <ArrowRight className="w-6 h-6 text-slate-400 rotate-90 sm:rotate-0 flex-shrink-0" />
                 <div className="flex-1 bg-danger-50 border border-danger/20 rounded-xl px-4 py-3 w-full text-center sm:text-left">
                   <div className="text-[10px] uppercase font-bold text-danger mb-1 tracking-wider">Blocked</div>
-                  <div className="font-semibold text-text-primary">❌ Regularization</div>
+                  <div className="font-semibold text-text-primary">Regularization</div>
                 </div>
               </div>
 
@@ -210,7 +180,7 @@ export function Landing() {
                   <span className="bg-slate-50 border border-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg text-text-secondary">3. Reassess</span>
                 </div>
                 <Link to="/signup" className="flex-shrink-0 flex items-center gap-1.5 gradient-ai text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity">
-                  Start Fixing This <ArrowRight className="w-4 h-4" />
+                  Start Learning <ArrowRight className="w-4 h-4" />
                 </Link>
               </div>
             </div>
@@ -475,7 +445,7 @@ export function Landing() {
                 </div>
 
                 <Link to="/signup" className="inline-flex items-center gap-2 font-semibold text-primary hover:text-indigo-700 transition-colors">
-                  Start Your Journey <ArrowRight className="w-5 h-5" />
+                  Start Learning <ArrowRight className="w-5 h-5" />
                 </Link>
               </ScrollReveal>
             </div>
